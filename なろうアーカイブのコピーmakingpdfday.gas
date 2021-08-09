@@ -1,1 +1,233 @@
-{"files":[{"id":"4d8c5a6d-85f5-40fa-8ad4-c1e54e614ea7","name":"appsscript","type":"json","source":"{\n  \"timeZone\": \"America/New_York\",\n  \"dependencies\": {\n  },\n  \"exceptionLogging\": \"STACKDRIVER\",\n  \"runtimeVersion\": \"V8\"\n}"},{"id":"16f70668-3aff-4516-9ff5-00a0f9e93836","name":"コード","type":"server_js","source":"//なろうapiにアクセスして300位まで取得する。\nfunction get_narou(mode){\n\n  var now \u003d new Date();  \n  var date \u003d Utilities.formatDate(now, \u0027Asia/Tokyo\u0027, \u0027yyyyMMdd\u0027);\n  var day \u003d date + \u0027-\u0027 + mode;\n  Logger.log(day);\n  var payload \u003d \"?\" + \u0027out\u003djson\u0027+ \"\u0026\" + \u0027gzip\u003d0\u0027  + \"\u0026\" + \u0027rtype\u003d\u0027 + day;\n  Logger.log(payload);\n\n  var url \u003d \"https://api.syosetu.com/rank/rankget/\" + payload;\n  Logger.log(url);\n\n  var responseDataGET \u003d UrlFetchApp.fetch(url).getContentText(\u0027UTF-8\u0027);\n  Logger.log(responseDataGET);\n\n\n  var contentJson \u003d JSON.parse(responseDataGET);\n  return contentJson;\n}\n\n\n\n\n\n//保存したいurlを入力するとwaybackに変換して登録\nfunction wayback(url){\n  var pdf_url \u003d \u0027https://web.archive.org/save/\u0027+url;\n  Logger.log(pdf_url);\n  var options \u003d {\n    \"muteHttpExceptions\": true,　    // 404エラーでも処理を継続する\n  };\n  var responseDataGET2 \u003d UrlFetchApp.fetch(pdf_url, options);\n  var code \u003d responseDataGET2.getResponseCode();\n  Logger.log(code);\n  //Logger.log(responseDataGET2.getContentText(\u0027UTF-8\u0027));\n  Logger.log(\"--------------------------------------------\")\n\n}\n\n\n//ver1\n//一連の動作\nfunction narou_wayback1(mode){\n  contentJson\u003dget_narou(mode);\n  for (let i\u003d0; i\u003ccontentJson.length; i++){\n    var url \u003d \"https://pdfnovels.net/\" + contentJson[i].ncode +\"/main.pdf\";\n    Logger.log(i+ \"番目 \"+ contentJson[i].ncode);\n    wayback(url);\n  }\n}\n\n\n\n\n\n//ver2\n//6分で自動的にできなくなってしまうので、5分経ったら途中から実行しなおすようにした。\nfunction narou_wayback(mode){\n  var start_time \u003d new Date();\n  var properties \u003d PropertiesService.getScriptProperties();\n  var number \u003d parseInt(properties.getProperty(\"number\"));\n  \n  contentJson\u003dget_narou(mode);\n\n  for (let i\u003dnumber; i\u003ccontentJson.length; i++){\n\n    var current_time \u003d new Date();\n    var difference \u003d parseInt((current_time.getTime() - start_time.getTime()) / (1000 * 60));\n    // スクリプトプロパティの更新\n    properties.setProperty(\"number\",i);\n    \n    if(difference \u003e\u003d 4){\n\n\n      \n      //もう一度動かす\n      ScriptApp\n      .newTrigger(func_name)\n      .timeBased()\n      .after(10 * 1000)\n      .create();\n      return;\n    }else{\n\n      var url \u003d \"https://pdfnovels.net/\" + contentJson[i].ncode +\"/main.pdf\";\n      Logger.log(i+ \"番目 \"+ contentJson[i].ncode);\n      wayback(url);\n    }\n  }\n\n  properties.setProperty(\"number\",0);\n\n}\n\n\n\n\n\n//pdfを作成中です、がアーカイブされてしまうことがあるので、あらかじめアクセスしておく\n//1秒1アクセスぽいので300こで6分の壁は大丈夫かな\nfunction make_pdf(){\n  contentJson \u003d get_narou(\"d\");\n  for (let i\u003d0; i\u003ccontentJson.length; i++){\n    var url \u003d \"https://pdfnovels.net/\" + contentJson[i].ncode +\"/main.pdf\";\n    var options \u003d {\n    \"muteHttpExceptions\": true,　    // 404エラーでも処理を継続する\n    };\n    let res \u003d UrlFetchApp.fetch(url, options);\n    let code \u003d res.getResponseCode();\n    Logger.log(i + \"番目\");\n    Logger.log(url);\n    Logger.log(code);\n  }\n}\n\n\n\n\n\n\n\n// 特定関数のトリガーを全て削除\nfunction delete_specific_triggers( name_function ){\n  var all_triggers \u003d ScriptApp.getProjectTriggers();\n\n  for( var i \u003d 0; i \u003c all_triggers.length; ++i ){\n    if( all_triggers[i].getHandlerFunction() \u003d\u003d name_function )\n      ScriptApp.deleteTrigger(all_triggers[i]);\n  }//for_i\n}//func_deleteSpecificTriggers\n\n\n\n\n\n\n//https://qiita.com/s_maeda_fukui/items/d194c6408803229fe1b9\n//modeは日間の場合はd,週間の場合はw,月間の場合はmが、四半期の場合はqが入ります。\n\n//+制約+\n//・2013年5月1日以降の日付を指定してください。\n//・週間を取得する場合、日付は火曜日の日付を指定してください。\n//・月間、四半期を取得する場合、日付は1日を指定してください。\n\n//また、「小説を読もう！で公開しているランキング」の日間ランキングは1日3回更新されていますが、このAPIでは午前4時～午前7時に作成した日間ランキングのみを蓄積しAPIで提供しています。 予めご了承願います。\nfunction day(){\n  func_name \u003d \"day_mirror\";\n  delete_specific_triggers(func_name)\n  narou_wayback(\"d\");\n}\n\n//triggerが溜まってきてしまうので、削除するトリガーと起動するトリガーをわけた\nfunction day_mirror(){\n  func_name \u003d \"day_mirror\";\n  delete_specific_triggers(func_name)\n  narou_wayback(\"d\");\n}\n\n\n\nfunction week(){\n  func_name \u003d \"week_mirror\";\n  delete_specific_triggers(func_name)\n  narou_wayback(\"w\");\n}\n\nfunction week_mirror(){\n  func_name \u003d \"week_mirror\";\n  delete_specific_triggers(func_name)\n  narou_wayback(\"w\");\n}\n\nfunction month(){\n  func_name \u003d \"month_mirror\";\n  delete_specific_triggers(func_name)\n  narou_wayback(\"m\");\n}\n\nfunction month_mirror(){\n  func_name \u003d \"month_mirror\";\n  delete_specific_triggers(func_name)\n  narou_wayback(\"m\");\n}\n\nfunction quarter(){\n  func_name \u003d \"quarter_mirror\";\n  delete_specific_triggers(func_name)\n  narou_wayback(\"q\");\n}\n\nfunction quarter_mirror(){\n  func_name \u003d \"quarter_mirror\";\n  delete_specific_triggers(func_name)\n  narou_wayback(\"q\");\n}\n\n\n//https://qiita.com/n0bisuke/items/a31a99232e50461eb00f\n//失敗。ロボットと間違われる\nfunction sendHttpPost(url){\n\n  var main_url \u003d \"https://megalodon.jp/2021-0306-1719-56/\";\n  get_url \u003d main_url + url;\n  res1 \u003d UrlFetchApp.fetch(get_url);\n   Logger.log(res1.getContentText(\u0027UTF-8\u0027))\n\n\n   var payload \u003d\n   {\n     \"url\":url,\n  \"token\":\"03AGdBq246V2mtGyZ7cyBTHvbK5Tgfg9b4bJRo5GL9xCImRqMHqinN3Rf4l157IWhXOUdcyLo8Z5ILJ4WvLVDXRJG4pUktHwccHT6HeEVQ-k8V0kaiGQTtXRLal1-Wp8RPK77M5DD86nme6_e8PQjk2szQZXbM43Db0znZdidJDDVWXWUg23snkEARtiAzxfWJKgWodCRvSgYqXRB2b2eBEJDsAaxxEMksloPX2eqElwx49vCAqWMk8v-aonsrob27maPd57LCiS_YjzvUwYBSkWGQfGC0MZ-G9FoXdEp5j1oJ6eK-k026_-g0XAbEHlfqewZk36OSKxqwJJWX3cIT5333qr3kGEYjiWeJLXLkLL9ATnsnkDVJK_6HNJsndzFgCTZpwLQXsymszjrbX-ipDAQO3I1cZwklt-00AVPsoJo1cRKLSlwuWxBR1p-qzkIy4kxbWR1_yLfM\"\n   };\n\n   var options \u003d\n   {\n     \"method\" : \"post\",\n     \"payload\" : payload\n   };\n\n   res \u003d UrlFetchApp.fetch(\"https://megalodon.jp/pc/get_simple/decide\", options);\n   Logger.log(res.getContentText(\u0027UTF-8\u0027))\n\n}\n\nfunction myFunction(){\n  var message \u003d \"https://ncode.syosetu.com/n0085gq/4/\";\n  sendHttpPost(message);\n}\n\n\n\n\n"}]}
+//なろうapiにアクセスして300位まで取得する。
+function get_narou(mode){
+
+  var now = new Date();  
+  var date = Utilities.formatDate(now, 'Asia/Tokyo', 'yyyyMMdd');
+  var day = date + '-' + mode;
+  Logger.log(day);
+  var payload = "?" + 'out=json'+ "&" + 'gzip=0'  + "&" + 'rtype=' + day;
+  Logger.log(payload);
+
+  var url = "https://api.syosetu.com/rank/rankget/" + payload;
+  Logger.log(url);
+
+  var responseDataGET = UrlFetchApp.fetch(url).getContentText('UTF-8');
+  Logger.log(responseDataGET);
+
+
+  var contentJson = JSON.parse(responseDataGET);
+  return contentJson;
+}
+
+
+
+
+
+//保存したいurlを入力するとwaybackに変換して登録
+function wayback(url){
+  var pdf_url = 'https://web.archive.org/save/'+url;
+  Logger.log(pdf_url);
+  var options = {
+    "muteHttpExceptions": true,　    // 404エラーでも処理を継続する
+  };
+  var responseDataGET2 = UrlFetchApp.fetch(pdf_url, options);
+  var code = responseDataGET2.getResponseCode();
+  Logger.log(code);
+  //Logger.log(responseDataGET2.getContentText('UTF-8'));
+  Logger.log("--------------------------------------------")
+
+}
+
+
+//ver1
+//一連の動作
+function narou_wayback1(mode){
+  contentJson=get_narou(mode);
+  for (let i=0; i<contentJson.length; i++){
+    var url = "https://pdfnovels.net/" + contentJson[i].ncode +"/main.pdf";
+    Logger.log(i+ "番目 "+ contentJson[i].ncode);
+    wayback(url);
+  }
+}
+
+
+
+
+
+//ver2
+//6分で自動的にできなくなってしまうので、5分経ったら途中から実行しなおすようにした。
+function narou_wayback(mode){
+  var start_time = new Date();
+  var properties = PropertiesService.getScriptProperties();
+  var number = parseInt(properties.getProperty("number"));
+  
+  contentJson=get_narou(mode);
+
+  for (let i=number; i<contentJson.length; i++){
+
+    var current_time = new Date();
+    var difference = parseInt((current_time.getTime() - start_time.getTime()) / (1000 * 60));
+    // スクリプトプロパティの更新
+    properties.setProperty("number",i);
+    
+    if(difference >= 4){
+
+
+      
+      //もう一度動かす
+      ScriptApp
+      .newTrigger(func_name)
+      .timeBased()
+      .after(10 * 1000)
+      .create();
+      return;
+    }else{
+
+      var url = "https://pdfnovels.net/" + contentJson[i].ncode +"/main.pdf";
+      Logger.log(i+ "番目 "+ contentJson[i].ncode);
+      wayback(url);
+    }
+  }
+
+  properties.setProperty("number",0);
+
+}
+
+
+
+
+
+//pdfを作成中です、がアーカイブされてしまうことがあるので、あらかじめアクセスしておく
+//1秒1アクセスぽいので300こで6分の壁は大丈夫かな
+function make_pdf(){
+  contentJson = get_narou("d");
+  for (let i=0; i<contentJson.length; i++){
+    var url = "https://pdfnovels.net/" + contentJson[i].ncode +"/main.pdf";
+    var options = {
+    "muteHttpExceptions": true,　    // 404エラーでも処理を継続する
+    };
+    let res = UrlFetchApp.fetch(url, options);
+    let code = res.getResponseCode();
+    Logger.log(i + "番目");
+    Logger.log(url);
+    Logger.log(code);
+  }
+}
+
+
+
+
+
+
+
+// 特定関数のトリガーを全て削除
+function delete_specific_triggers( name_function ){
+  var all_triggers = ScriptApp.getProjectTriggers();
+
+  for( var i = 0; i < all_triggers.length; ++i ){
+    if( all_triggers[i].getHandlerFunction() == name_function )
+      ScriptApp.deleteTrigger(all_triggers[i]);
+  }//for_i
+}//func_deleteSpecificTriggers
+
+
+
+
+
+
+//https://qiita.com/s_maeda_fukui/items/d194c6408803229fe1b9
+//modeは日間の場合はd,週間の場合はw,月間の場合はmが、四半期の場合はqが入ります。
+
+//+制約+
+//・2013年5月1日以降の日付を指定してください。
+//・週間を取得する場合、日付は火曜日の日付を指定してください。
+//・月間、四半期を取得する場合、日付は1日を指定してください。
+
+//また、「小説を読もう！で公開しているランキング」の日間ランキングは1日3回更新されていますが、このAPIでは午前4時～午前7時に作成した日間ランキングのみを蓄積しAPIで提供しています。 予めご了承願います。
+function day(){
+  func_name = "day_mirror";
+  delete_specific_triggers(func_name)
+  narou_wayback("d");
+}
+
+//triggerが溜まってきてしまうので、削除するトリガーと起動するトリガーをわけた
+function day_mirror(){
+  func_name = "day_mirror";
+  delete_specific_triggers(func_name)
+  narou_wayback("d");
+}
+
+
+
+function week(){
+  func_name = "week_mirror";
+  delete_specific_triggers(func_name)
+  narou_wayback("w");
+}
+
+function week_mirror(){
+  func_name = "week_mirror";
+  delete_specific_triggers(func_name)
+  narou_wayback("w");
+}
+
+function month(){
+  func_name = "month_mirror";
+  delete_specific_triggers(func_name)
+  narou_wayback("m");
+}
+
+function month_mirror(){
+  func_name = "month_mirror";
+  delete_specific_triggers(func_name)
+  narou_wayback("m");
+}
+
+function quarter(){
+  func_name = "quarter_mirror";
+  delete_specific_triggers(func_name)
+  narou_wayback("q");
+}
+
+function quarter_mirror(){
+  func_name = "quarter_mirror";
+  delete_specific_triggers(func_name)
+  narou_wayback("q");
+}
+
+
+//https://qiita.com/n0bisuke/items/a31a99232e50461eb00f
+//失敗。ロボットと間違われる
+function sendHttpPost(url){
+
+  var main_url = "https://megalodon.jp/2021-0306-1719-56/";
+  get_url = main_url + url;
+  res1 = UrlFetchApp.fetch(get_url);
+   Logger.log(res1.getContentText('UTF-8'))
+
+
+   var payload =
+   {
+     "url":url,
+  "token":"03AGdBq246V2mtGyZ7cyBTHvbK5Tgfg9b4bJRo5GL9xCImRqMHqinN3Rf4l157IWhXOUdcyLo8Z5ILJ4WvLVDXRJG4pUktHwccHT6HeEVQ-k8V0kaiGQTtXRLal1-Wp8RPK77M5DD86nme6_e8PQjk2szQZXbM43Db0znZdidJDDVWXWUg23snkEARtiAzxfWJKgWodCRvSgYqXRB2b2eBEJDsAaxxEMksloPX2eqElwx49vCAqWMk8v-aonsrob27maPd57LCiS_YjzvUwYBSkWGQfGC0MZ-G9FoXdEp5j1oJ6eK-k026_-g0XAbEHlfqewZk36OSKxqwJJWX3cIT5333qr3kGEYjiWeJLXLkLL9ATnsnkDVJK_6HNJsndzFgCTZpwLQXsymszjrbX-ipDAQO3I1cZwklt-00AVPsoJo1cRKLSlwuWxBR1p-qzkIy4kxbWR1_yLfM"
+   };
+
+   var options =
+   {
+     "method" : "post",
+     "payload" : payload
+   };
+
+   res = UrlFetchApp.fetch("https://megalodon.jp/pc/get_simple/decide", options);
+   Logger.log(res.getContentText('UTF-8'))
+
+}
+
+function myFunction(){
+  var message = "https://ncode.syosetu.com/n0085gq/4/";
+  sendHttpPost(message);
+}
+
+
+
+
